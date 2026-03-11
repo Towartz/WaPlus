@@ -1,0 +1,163 @@
+{
+  "name": "aurorachat",
+  "version": "1.0.0",
+  "description": "AuroraChat - WhatsApp Desktop Client",
+  "author": {
+    "name": "66XZD",
+    "email": "66xzd.hz@gmail.com"
+  },
+  "homepage": "https://github.com/Towartz/WaPlus",
+  "main": "electron/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev:linux": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron . --ozone-platform=x11 --log-level=3\"",
+    "dev:win": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev:mac": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "vite build",
+    "start": "electron .",
+    "start:linux": "electron . --ozone-platform=x11 --log-level=3",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:all": "npm run build && electron-builder --win --linux --mac",
+    "obfuscate": "node scripts/obfuscate.js",
+    "dist:secure": "npm run build && npm run obfuscate && electron-builder --linux",
+    "dist:secure:win": "npm run build && npm run obfuscate && electron-builder --win",
+    "dist:secure:all": "npm run build && npm run obfuscate && electron-builder --win --linux",
+    "postinstall": "electron-builder install-app-deps",
+    "rebuild": "npx --no -- electron-rebuild -f -w better-sqlite3"
+  },
+  "build": {
+    "appId": "com.aurorachat.desktop",
+    "productName": "AuroraChat",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ],
+    "directories": {
+      "buildResources": "assets",
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "!electron/baileys/media/**",
+      "!electron/baileys/media",
+      "!electron/baileys/session/**",
+      "!electron/baileys/session",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "pacman",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "category": "Network",
+      "executableArgs": [
+        "--ozone-platform=x11"
+      ]
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.social-networking",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "assets/entitlements.mac.plist",
+      "entitlementsInherit": "assets/entitlements.mac.plist"
+    },
+    "dmg": {
+      "sign": false
+    },
+    "electronVersion": "40.6.0"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@tanstack/react-virtual": "^3.13.19",
+    "baileys": "npm:wileys@latest",
+    "better-sqlite3": "^12.6.2",
+    "chalk": "^4.1.2",
+    "date-fns": "^4.1.0",
+    "framer-motion": "^12.34.3",
+    "jimp": "0.16.1",
+    "node-cache": "^5.1.2",
+    "pino": "^10.3.1",
+    "qrcode": "^1.5.4",
+    "react-icons": "^5.5.0",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
+    "@tailwindcss/vite": "^4.2.1",
+    "@vitejs/plugin-react": "^5.1.4",
+    "autoprefixer": "^10.4.24",
+    "chokidar": "^5.0.0",
+    "concurrently": "^9.2.1",
+    "electron": "^40.6.0",
+    "electron-builder": "^26.8.1",
+    "javascript-obfuscator": "^5.3.0",
+    "postcss": "^8.5.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "tailwindcss": "^4.2.1",
+    "vite": "^7.3.1",
+    "wait-on": "^7.0.1"
+  }
+}
