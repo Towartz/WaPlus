@@ -100,7 +100,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
 
@@ -206,12 +206,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
         with:
           ref: ${{ needs.decide.outputs.build_ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -291,7 +291,7 @@ jobs:
           find release -maxdepth 1 \( -name "*.exe" -o -name "*.msi" \) | sort
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: AuroraChat-Windows-${{ needs.decide.outputs.app_version }}
           path: |
@@ -309,12 +309,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
         with:
           ref: ${{ needs.decide.outputs.build_ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -389,7 +389,7 @@ jobs:
           find release -maxdepth 1 \( -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.pacman" \) | sort
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: AuroraChat-Linux-${{ needs.decide.outputs.app_version }}
           path: |
@@ -409,12 +409,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
         with:
           ref: ${{ needs.decide.outputs.build_ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -484,7 +484,7 @@ jobs:
           find release -maxdepth 3 \( -name "*.dmg" -o -name "*.zip" \) | sort
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: AuroraChat-macOS-${{ needs.decide.outputs.app_version }}
           path: |
@@ -508,13 +508,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
           ref: ${{ needs.decide.outputs.build_ref }}
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.0
         with:
           path: dist-artifacts/
 
@@ -576,7 +576,7 @@ jobs:
           cat RELEASE_NOTES.md
 
       - name: Create or update GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.2.1
         with:
           tag_name      : ${{ needs.decide.outputs.tag_name }}
           name          : "AuroraChat v${{ needs.decide.outputs.app_version }}"
