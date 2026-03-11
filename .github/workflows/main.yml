@@ -10,7 +10,7 @@
 # Runners per platform (parallel):
 #   🪟 Windows → windows-latest
 #   🐧 Linux   → ubuntu-22.04
-#   🍎 macOS   → macos-13  (Intel, supports arm64 cross-compile)
+#   🍎 macOS   → macos-latest  (macOS 14 Sonoma, Apple Silicon)
 #
 # better-sqlite3 prebuilt binary is injected per platform before packaging.
 # npmRebuild is disabled to prevent overwriting the injected binary.
@@ -76,7 +76,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "22"
   ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -214,10 +214,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        run: npm install --ignore-scripts
         shell: bash
 
       - name: Bump version in package.json
@@ -318,7 +317,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
 
       - name: Install system dependencies
         run: |
@@ -327,7 +325,7 @@ jobs:
             libarchive-tools rpm fakeroot dpkg libfuse2
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        run: npm install --ignore-scripts
 
       - name: Bump version in package.json
         run: |
@@ -407,7 +405,7 @@ jobs:
     name: "🍎 macOS"
     needs: decide
     if: needs.decide.outputs.run_macos == 'true'
-    runs-on: macos-13
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
@@ -419,10 +417,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        run: npm install --ignore-scripts
 
       - name: Bump version in package.json
         run: |
