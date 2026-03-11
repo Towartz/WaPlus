@@ -223,7 +223,10 @@ function download(url, destPath, hops = 0) {
       res.pipe(file)
       file.on("finish", () => {
         if (total > 0 && process.stdout.isTTY) process.stdout.write("\n")
-        file.close(resolve)
+        file.close((err) => {
+          if (err) reject(err)
+          else resolve()
+        })
       })
       file.on("error", (e) => { try { fs.unlinkSync(destPath) } catch {}; reject(e) })
     }).on("error", reject)
@@ -235,13 +238,14 @@ function checkUrlExists(url, hops = 0) {
   return new Promise((resolve) => {
     if (hops > 5) return resolve(false)
     const req = https.request(url, { method: "HEAD", headers: { "User-Agent": "inject-sqlite/2.0" } }, (res) => {
+      res.resume() // consume response body to free socket
       if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
-        res.resume()
         return checkUrlExists(res.headers.location, hops + 1).then(resolve)
       }
       resolve(res.statusCode === 200)
     })
     req.on("error", () => resolve(false))
+    req.setTimeout(15000, () => { req.destroy(); resolve(false) })
     req.end()
   })
 }
@@ -375,4 +379,4 @@ async function main() {
   }
 }
 
-main().catch((e) => die(e.message))
+main().then(() => process.exit(0)).catch((e) => die(e.message))
