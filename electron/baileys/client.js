@@ -82,7 +82,55 @@ const {
 } = require("baileys")
 
 // ADD MessageParser by Towartz
-const { parseMessage, buildRendererPayload, normalizeJid, buildLidMap, isLidJid, resolveLid, tryResolveLid, seedLidMap, initSock } = require("./messageParser")
+const {
+  parseMessage, buildRendererPayload, normalizeJid, buildLidMap, isLidJid, resolveLid,
+  tryResolveLid, seedLidMap, initSock,
+  // Proto utils
+  toNumber, generateMessageIDV2, getStatusFromType, getCallStatusFromNode,
+  getUrlFromDirectPath, extractURL,
+  // Msg helpers
+  normalizeMessageContent, extractMessageContent, generateForwardMessageContent,
+  updateMessageWithReceipt, updateMessageWithReaction, updateMessageWithPollUpdate,
+  extractDeviceJids, getSenderInfo,
+} = require("./messageParser")
+
+// ── [FIX-POLL-DECRYPT] Standalone poll vote decryption ───────────────────────
+// Implements the same algorithm as Baileys' decryptPollVote (process-message.js)
+// without importing it (avoids circular dep / version mismatch issues).
+const _crypto = require("crypto")
+function _decryptPollVote({ encPayload, encIv }, { pollEncKey, pollCreatorJid, pollMsgId, voterJid }) {
+  const toBuf = s => Buffer.from(s)
+  const sign = Buffer.concat([
+    toBuf(pollMsgId), toBuf(pollCreatorJid), toBuf(voterJid),
+    toBuf('Poll Vote'), Buffer.from([1])
+  ])
+  // [FIX] hmacSign(buffer, key) order: data=pollEncKey, key=zeros
+  const key0  = _crypto.createHmac('sha256', Buffer.alloc(32)).update(pollEncKey).digest()
+  const decKey = _crypto.createHmac('sha256', key0).update(sign).digest()
+  const aad    = toBuf(`${pollMsgId}\u0000${voterJid}`)
+  // [FIX] pass encIv as-is, no slice (Baileys passes raw encIv to aesDecryptGCM)
+  const iv       = encIv
+  const authTag  = encPayload.slice(encPayload.length - 16)
+  const cipher   = encPayload.slice(0, encPayload.length - 16)
+  const decipher = _crypto.createDecipheriv('aes-256-gcm', decKey, iv)
+  decipher.setAuthTag(authTag)
+  decipher.setAAD(aad)
+  const dec = Buffer.concat([decipher.update(cipher), decipher.final()])
+  // Decode protobuf: PollVoteMessage has repeated bytes selectedOptions = 1
+  const selectedOptions = []
+  let pos = 0
+  while (pos < dec.length) {
+    const tag = dec[pos++]
+    const fieldNum = tag >> 3, wireType = tag & 0x7
+    if (fieldNum === 1 && wireType === 2) {
+      let len = 0, shift = 0
+      while (true) { const b = dec[pos++]; len |= (b & 0x7F) << shift; if (!(b & 0x80)) break; shift += 7 }
+      selectedOptions.push(dec.slice(pos, pos + len))
+      pos += len
+    } else break
+  }
+  return { selectedOptions }
+}
 // [JID-UTILS] Baileys-native JID type checks — consistent with how Baileys itself validates JIDs
 const {
   isGroupJid, isNewsletterJid, isUserJid, isBroadcastJid, isStatusBroadcastJid, sameUser,
@@ -1436,11 +1484,7 @@ function _getStatusSender(msg) {
   if (msg.key?.fromMe === true && sock?.user?.id) return normalizeJid(sock.user.id)
   return normalizeJid(msg.key?.remoteJid || '')
 }
-function _tsToNum(ts) {
-  if (!ts) return 0
-  if (typeof ts === 'object' && typeof ts.toNumber === 'function') return ts.toNumber()
-  return Number(ts)
-}
+function _tsToNum(ts) { return toNumber(ts) }
 function _detectStatusType(mc) {
   if (mc?.statusSourceType != null)
     return { n: mc.statusSourceType, s: STATUS_SOURCE_LABEL[mc.statusSourceType] ?? 'unknown' }
@@ -1734,7 +1778,125 @@ async function handleMessage(msg, type, isHistorySync = false) {
   }
   if (isJidBroadcast(msg.key?.remoteJid || "")) return
 
-  // ── Parse dengan messageParser ───────────────────────────
+  // ── [FIX-POLL-UPSERT] Intercept pollUpdateMessage BEFORE saving to DB ────
+  // Baileys delivers votes via messages.upsert (NOT messages.update) on some WA versions.
+  // We process the vote here and return early so no pollUpdateMessage bubble is stored.
+  if (msg.message?.pollUpdateMessage) {
+    const pum = msg.message.pollUpdateMessage
+    const pollId = pum.pollCreationMessageKey?.id
+    if (pollId) {
+      try {
+        const pollMsg = db.getMessageById(pollId)
+        logW(`[POLL-DBG] pollId=${pollId} found=${!!pollMsg} has_opts=${!!pollMsg?.poll_options} json_len=${pollMsg?.message_json?.length ?? 0}`)
+        if (pollMsg?.poll_options) {
+          let pollCreation = {}
+          try {
+            // [FIX-POLL-ENCKEY] message_json stores Buffers as base64 strings (via replacer).
+            // Restore encKey back to Buffer so getAggregateVotesInPollMessage can decrypt.
+            const raw = JSON.parse(pollMsg.message_json || '{}')
+            logW(`[POLL-DBG] raw_keys=${JSON.stringify(Object.keys(raw))} mci=${JSON.stringify(raw.messageContextInfo)} pm_keys=${JSON.stringify(Object.keys(raw.pollCreationMessageV3||raw.pollCreationMessageV2||raw.pollCreationMessage||{}))}`)
+            // Restore Buffer fields serialized as base64 strings
+            const pm = raw.pollCreationMessageV3 || raw.pollCreationMessageV2 || raw.pollCreationMessage
+            // [FIX] Buffers can be serialized as base64 string OR as {type:'Buffer',data:[...]}
+            const toBuffer = v => {
+              if (!v) return null
+              if (Buffer.isBuffer(v)) return v
+              if (v instanceof Uint8Array) return Buffer.from(v)
+              if (typeof v === 'string') return Buffer.from(v, 'base64')
+              if (v?.type === 'Buffer' && Array.isArray(v.data)) return Buffer.from(v.data)
+              return null
+            }
+            if (pm?.encKey) pm.encKey = toBuffer(pm.encKey) ?? pm.encKey
+            if (raw.messageContextInfo?.messageSecret) {
+              raw.messageContextInfo.messageSecret = toBuffer(raw.messageContextInfo.messageSecret) ?? raw.messageContextInfo.messageSecret
+            }
+            pollCreation = raw
+          } catch (_) {}
+          logW(`[POLL-DBG] pollCreation keys=${JSON.stringify(Object.keys(pollCreation))} encKey=${!!(pollCreation.pollCreationMessageV3?.encKey || pollCreation.pollCreationMessage?.encKey)}`)
+
+          // [FIX-POLL-DECRYPT] Decrypt encPayload using pollEncKey from messageContextInfo.messageSecret
+          // pollEncKey is NOT in pollCreationMessage.encKey — it lives in messageContextInfo.messageSecret
+          const pollEncKey = pollCreation.messageContextInfo?.messageSecret
+          const pollCreatorJid = jidNormalizedUser(pum.pollCreationMessageKey?.participant || pum.pollCreationMessageKey?.remoteJid || '')
+          const voterJid = jidNormalizedUser(msg.key?.participant || msg.key?.remoteJid || '')
+          const senderJid = msg.key?.participant || msg.key?.remoteJid || ''
+
+          // helper — handles Buffer, Uint8Array, base64 string, {type:'Buffer',data:[]}
+          const _toKeyBuf = v => {
+            if (!v) return null
+            if (Buffer.isBuffer(v)) return v
+            if (v instanceof Uint8Array) return Buffer.from(v)
+            if (typeof v === 'string') return Buffer.from(v, 'base64')
+            if (v?.type === 'Buffer' && Array.isArray(v.data)) return Buffer.from(v.data)
+            return null
+          }
+          const encKeyBuf = _toKeyBuf(pollEncKey)
+          logW(`[POLL-DBG] pollEncKey=${!!pollEncKey} type=${pollEncKey ? typeof pollEncKey : 'none'} encKeyBuf_len=${encKeyBuf?.length ?? 'null'} pollCreatorJid=${pollCreatorJid} voterJid=${voterJid}`)
+          logW(`[POLL-DBG] vote_encPayload_len=${pum.vote?.encPayload?.length ?? JSON.stringify(pum.vote?.encPayload)?.length} vote_encIv_len=${pum.vote?.encIv?.length ?? JSON.stringify(pum.vote?.encIv)?.length}`)
+
+          let decryptedVote = null
+          try {
+            if (encKeyBuf) {
+              const encPayloadBuf = _toKeyBuf(pum.vote?.encPayload) ?? Buffer.from(pum.vote?.encPayload ?? '', 'base64')
+              const encIvBuf      = _toKeyBuf(pum.vote?.encIv)      ?? Buffer.from(pum.vote?.encIv      ?? '', 'base64')
+              logW(`[POLL-DBG] encKeyBuf=${encKeyBuf.toString('hex')} encIvBuf=${encIvBuf.toString('hex')} encPayload=${encPayloadBuf.toString('hex')}`)
+              decryptedVote = _decryptPollVote(
+                { encPayload: encPayloadBuf, encIv: encIvBuf },
+                { pollEncKey: encKeyBuf, pollCreatorJid, pollMsgId: pollId, voterJid }
+              )
+            }
+          } catch (decErr) {
+            logW(`[POLL-DBG] decryptPollVote error: ${decErr.message}`)
+          }
+          logW(`[POLL-DBG] decryptedVote=${JSON.stringify(decryptedVote)}`)
+
+          const pollUpdateEntry = {
+            pollUpdateMessageKey: msg.key,
+            vote: decryptedVote || {},
+            pollUpdateSenderKeyRemoteJid: senderJid,
+            senderTimestampMs: Number(pum.senderTimestampMs) || Date.now(),
+          }
+
+          const pollResults = getAggregateVotesInPollMessage({
+            message: pollCreation,
+            pollUpdates: [pollUpdateEntry],
+          })
+          logW(`[POLL-DBG] pollResults=${JSON.stringify(pollResults)}`)
+
+          try { updateMessageWithPollUpdate(pollCreation, pollUpdateEntry) } catch (_) {}
+
+          let originalOpts = []
+          try { originalOpts = JSON.parse(pollMsg.poll_options || '[]') } catch (_) {}
+          logW(`[POLL-DBG] originalOpts=${JSON.stringify(originalOpts)}`)
+
+          const mergedOptions = originalOpts.map(opt => {
+            const match = pollResults.find(r => r.name === opt.name)
+            return { ...opt, votes: match ? (match.voters?.length ?? 0) : 0 }
+          })
+          logW(`[POLL-DBG] mergedOptions=${JSON.stringify(mergedOptions)}`)
+
+          db.updatePollVotes?.(pollId, JSON.stringify(pollResults))
+          db.updatePollOptions?.(pollId, JSON.stringify(mergedOptions))
+          db.updateMessageRaw?.(pollId, JSON.stringify(pollCreation))
+
+          sendRaw("messages:poll_update", {
+            poll_id:      pollId,
+            chat_jid:     msg.key.remoteJid,
+            poll_options: mergedOptions,
+          })
+          logW(`[POLL] Vote processed via upsert path for poll ${pollId}`)
+        }
+      } catch (pollErr) {
+        logW(`[POLL] upsert vote error for ${pollId}: ${pollErr.message}`)
+      }
+    }
+    return  // Never save pollUpdateMessage as a chat bubble
+  }
+  // [POLL-DEBUG] dump raw poll creation message
+  if (msg.message?.pollCreationMessageV3 || msg.message?.pollCreationMessage || msg.message?.pollCreationMessageV2) {
+    logW(`[POLL-RAW] incoming poll creation: ${JSON.stringify(msg.message)}`)
+    logW(`[POLL-RAW] msg.messageContextInfo: ${JSON.stringify(msg.messageContextInfo)}`)
+  }
   const parsed = parseMessage(msg, {
     jid: msg.key.remoteJid,
     pushname: msg.pushName || null,
@@ -1743,6 +1905,14 @@ async function handleMessage(msg, type, isHistorySync = false) {
     lidMap,  // [FIX-LID] pass lid→JID map so quoted senders are resolved
   })
   if (!parsed?.id) return
+
+  // ── Attach raw WAMessage to parsed for M-object access ───────────────────
+  // parsed._rawMsg is used by enrichMessage (renderer.js) to populate smsg.m,
+  // smsg.mMsg, smsg.mContent, smsg.mText, smsg.mImageMsg, smsg.mReaction, etc.
+  // It is also used by _buildQuoteKey() in the reply/replyQuoted helpers so
+  // that sock.sendMessage receives a valid WAMessage as the quoted option
+  // (not just a bare key — Baileys needs the full message for proper quoting).
+  parsed._rawMsg = msg
 
   // ── Run mod hooks (onMessage) ────────────────────────────
   // [PERF-MOD] Only await modManager if there are active mods that could block.
@@ -2651,7 +2821,21 @@ async function connectToWhatsApp(phoneForPairing = null) {
         if (pollMsg?.poll_options) {
           // [FIX] Guard against corrupt raw column
           let pollCreation = {}
-          try { pollCreation = JSON.parse(pollMsg.raw || '{}') } catch (_) {}
+          try {
+            const raw = JSON.parse(pollMsg.message_json || '{}')
+            const pm = raw.pollCreationMessageV3 || raw.pollCreationMessageV2 || raw.pollCreationMessage
+            const _toBuf2 = v => {
+              if (!v) return null
+              if (Buffer.isBuffer(v)) return v
+              if (v instanceof Uint8Array) return Buffer.from(v)
+              if (typeof v === 'string') return Buffer.from(v, 'base64')
+              if (v?.type === 'Buffer' && Array.isArray(v.data)) return Buffer.from(v.data)
+              return null
+            }
+            if (pm?.encKey) pm.encKey = _toBuf2(pm.encKey) ?? pm.encKey
+            if (raw.messageContextInfo?.messageSecret) raw.messageContextInfo.messageSecret = _toBuf2(raw.messageContextInfo.messageSecret) ?? raw.messageContextInfo.messageSecret
+            pollCreation = raw
+          } catch (_) {}
           try {
             const pollResults = getAggregateVotesInPollMessage({
               message: pollCreation,
@@ -2661,10 +2845,35 @@ async function connectToWhatsApp(phoneForPairing = null) {
             // Update poll votes in database
             db.updatePollVotes?.(key.id, JSON.stringify(pollResults))
 
-            // Save individual votes
+            // [FIX-POLL-VOTES] getAggregateVotesInPollMessage returns { name, voters: string[] }
+            // but PollBubble reads poll_options: { idx, name, votes: number }.
+            // Merge by name to produce the correct shape, then persist + emit.
+            let originalOpts = []
+            try { originalOpts = JSON.parse(pollMsg.poll_options || '[]') } catch (_) {}
+            const mergedOptions = originalOpts.map(opt => {
+              const match = pollResults.find(r => r.name === opt.name)
+              return { ...opt, votes: match ? (match.voters?.length ?? 0) : 0 }
+            })
+
+            // Persist merged options back to poll_options column so it survives reload
+            db.updatePollOptions?.(key.id, JSON.stringify(mergedOptions))
+
+            // Save individual votes + update raw_json with merged pollUpdates
             for (const vote of update.pollUpdates) {
               db.savePollVote?.(key.id, vote.pollUpdateSenderKeyRemoteJid, vote.vote)
+              try {
+                updateMessageWithPollUpdate(pollCreation, vote)
+              } catch (_) {}
             }
+            // Persist merged pollUpdates back to DB
+            db.updateMessageRaw?.(key.id, JSON.stringify(pollCreation))
+
+            // [FIX-POLL-REALTIME] Push merged poll_options (with votes: number) to renderer
+            sendRaw("messages:poll_update", {
+              poll_id:      key.id,
+              chat_jid:     key.remoteJid,
+              poll_options: mergedOptions,
+            })
           } catch (pollErr) {
             logW(`[POLL] aggregateVotes error for ${key.id}: ${pollErr.message}`)
           }
@@ -2719,7 +2928,20 @@ async function connectToWhatsApp(phoneForPairing = null) {
   })
 
   // ── Other events ─────────────────────────────────────
-  sock.ev.on("message-receipt.update", (updates) => send("messages:receipt", updates))
+  sock.ev.on("message-receipt.update", (updates) => {
+    // Persist read receipts into DB if possible
+    for (const { key, receipt } of updates) {
+      try {
+        const msg = db.getMessageById?.(key.id)
+        if (msg?.raw_json) {
+          const parsed = JSON.parse(msg.raw_json)
+          updateMessageWithReceipt(parsed, receipt)
+          db.updateMessageRaw?.(key.id, JSON.stringify(parsed))
+        }
+      } catch (_) {}
+    }
+    send("messages:receipt", updates)
+  })
   sock.ev.on("messages.delete", (item) => {
     // Mark as deleted in database
     if (item.keys) {
@@ -2729,7 +2951,20 @@ async function connectToWhatsApp(phoneForPairing = null) {
     }
     send("messages:delete", item)
   })
-  sock.ev.on("messages.reaction", (reactions) => send("messages:reaction", reactions))
+  sock.ev.on("messages.reaction", (reactions) => {
+    // Persist reactions into DB if possible
+    for (const { key, reaction } of reactions) {
+      try {
+        const msg = db.getMessageById?.(key.id)
+        if (msg?.raw_json) {
+          const parsed = JSON.parse(msg.raw_json)
+          updateMessageWithReaction(parsed, reaction)
+          db.updateMessageRaw?.(key.id, JSON.stringify(parsed))
+        }
+      } catch (_) {}
+    }
+    send("messages:reaction", reactions)
+  })
 
   // Chats events
   sock.ev.on("chats.set", ({ chats, isLatest }) => {
@@ -5041,6 +5276,22 @@ module.exports = {
   getDlQueueStatus,       // debug: queue stats
   pauseDownloads,
   resumeDownloads,
+
+  // ── Msg / Proto utils (re-exported for plugins & mods) ──────────
+  toNumber,
+  generateMessageIDV2,
+  getStatusFromType,
+  getCallStatusFromNode,
+  getUrlFromDirectPath,
+  extractURL,
+  normalizeMessageContent,
+  extractMessageContent,
+  generateForwardMessageContent,
+  updateMessageWithReceipt,
+  updateMessageWithReaction,
+  updateMessageWithPollUpdate,
+  extractDeviceJids,
+  getSenderInfo,
 
   // Database exports
   getMessagesFromDB,

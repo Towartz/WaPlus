@@ -17,24 +17,46 @@
     "build": "vite build",
     "start": "electron .",
     "start:linux": "electron . --ozone-platform=x11 --log-level=3",
+
     "dist": "npm run build && electron-builder",
-    "dist:win": "npm run build && electron-builder --win",
-    "dist:linux": "npm run build && electron-builder --linux",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:all": "npm run build && electron-builder --win --linux --mac",
+    "dist:win": "npm run inject:win && npm run build && electron-builder --win --config.npmRebuild=false",
+    "dist:linux": "npm run inject:linux && npm run build && electron-builder --linux --config.npmRebuild=false",
+    "dist:mac": "npm run inject:mac && npm run build && electron-builder --mac --config.npmRebuild=false",
+
+    "dist:all": "node scripts/dist-all.js",
+    "dist:all:dry": "node scripts/dist-all.js --dry-run",
+
+    "dist:secure": "node scripts/dist-all.js --secure",
+    "dist:secure:win": "npm run inject:win && npm run build && npm run obfuscate && electron-builder --win --config.npmRebuild=false",
+    "dist:secure:linux": "npm run inject:linux && npm run build && npm run obfuscate && electron-builder --linux --config.npmRebuild=false",
+    "dist:secure:mac": "npm run inject:mac && npm run build && npm run obfuscate && electron-builder --mac --config.npmRebuild=false",
+    "dist:secure:all": "node scripts/dist-all.js --secure",
+    "dist:secure:winlinux": "node scripts/dist-all.js --secure --platforms win32,linux",
+
     "obfuscate": "node scripts/obfuscate.js",
-    "dist:secure": "npm run build && npm run obfuscate && electron-builder --linux",
-    "dist:secure:win": "npm run build && npm run obfuscate && electron-builder --win",
-    "dist:secure:all": "npm run build && npm run obfuscate && electron-builder --win --linux",
+
+    "inject": "node scripts/inject-win-sqlite.js",
+    "inject:win": "node scripts/inject-win-sqlite.js --platform win32 --arch x64",
+    "inject:win:arm64": "node scripts/inject-win-sqlite.js --platform win32 --arch arm64",
+    "inject:linux": "node scripts/inject-win-sqlite.js --platform linux --arch x64",
+    "inject:linux:arm64": "node scripts/inject-win-sqlite.js --platform linux --arch arm64",
+    "inject:mac": "node scripts/inject-win-sqlite.js --platform darwin --arch x64",
+    "inject:mac:arm64": "node scripts/inject-win-sqlite.js --platform darwin --arch arm64",
+    "inject:dry": "node scripts/inject-win-sqlite.js --dry-run",
+
     "postinstall": "electron-builder install-app-deps",
-    "rebuild": "npx --no -- electron-rebuild -f -w better-sqlite3"
+    "rebuild": "npx --no -- electron-rebuild -f -w better-sqlite3",
+    "rebuild:win": "npx --no -- electron-rebuild -f -w better-sqlite3 --platform win32 --arch x64 --dist-url https://electronjs.org/headers",
+    "rebuild:linux": "npx --no -- electron-rebuild -f -w better-sqlite3 --platform linux",
+    "rebuild:mac": "npx --no -- electron-rebuild -f -w better-sqlite3 --platform darwin"
   },
   "build": {
     "appId": "com.aurorachat.desktop",
     "productName": "AuroraChat",
     "asar": true,
     "asarUnpack": [
-      "node_modules/better-sqlite3/**/*"
+      "node_modules/better-sqlite3/**/*",
+      "**/*.node"
     ],
     "directories": {
       "buildResources": "assets",

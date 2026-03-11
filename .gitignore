@@ -54,4 +54,3 @@ electron/mods/mods_state.json
 *.txt
 *.py
 *.sh
-scripts/

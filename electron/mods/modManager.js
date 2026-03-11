@@ -21,6 +21,13 @@ const path = require("path")
 const fs   = require("fs")
 const EventEmitter = require("events")
 
+// [FIX] Import enrichMessage so plugins always receive a fully annotated smsg
+// with .reply(), .react(), .isImage, .quotedMsg, .mentionedJids, etc.
+let _enrichMessage = null
+try {
+  _enrichMessage = require("../baileys/messageParser").enrichMessage
+} catch (_) {}
+
 // [FIX-ASAR] Split plugin dirs:
 //   BUILTIN_PLUGINS_DIR → __dirname/plugins  (di dalam .asar, read-only, built-in)
 //   USER_PLUGINS_DIR    → userData/plugins   (writable, plugin buatan user)
@@ -243,6 +250,27 @@ class ModManager extends EventEmitter {
       get baileys() {
         try { return require("baileys") } catch { return {} }
       },
+
+      // ── Message helpers ───────────────────────────────────────
+      // enrichMessage — annotate a parsed row with full smsg surface.
+      // Call if you need .reply(), .isImage, .quotedMsg etc. on a message
+      // that was NOT dispatched through runOnMessage (e.g. fetched from DB).
+      //   const smsg = ctx.enrichMessage(row, { sock: ctx.sock })
+      enrichMessage: (parsed, enrichOpts = {}) => {
+        if (!_enrichMessage || !parsed) return parsed
+        try {
+          return _enrichMessage(parsed, {
+            myJid: manager._sock?.user?.id || null,
+            sock:  enrichOpts.sock || manager._sock || null,
+            ...enrichOpts,
+          })
+        } catch { return parsed }
+      },
+
+      // parseJid — decode a JID into { user, server, device }
+      parseJid: (jid) => {
+        try { return require("baileys").jidDecode(jid) } catch { return null }
+      },
     }
   }
 
@@ -301,6 +329,20 @@ class ModManager extends EventEmitter {
   // Dipanggil setiap ada pesan masuk/keluar (setelah parsing, sebelum disimpan ke DB)
   // Plugin bisa: modify `parsed`, return false untuk skip DB insert, dsb
   async runOnMessage(parsed, rawMsg) {
+    // [FIX-SMSG] Auto-enrich parsed before handing to plugins so they always
+    // receive the full smsg surface (.reply, .isImage, .quotedMsg, etc.)
+    // without having to call enrichMessage themselves.
+    if (_enrichMessage && parsed && !parsed._enriched) {
+      try {
+        _enrichMessage(parsed, {
+          myJid: this._sock?.user?.id || null,
+          sock:  this._sock  || null,
+          m:     rawMsg || null,   // [M-OBJECT] pass raw WAMessage so smsg.m is populated
+        })
+        parsed._enriched = true
+      } catch (_) {}
+    }
+
     for (const [id, plugin] of this.plugins) {
       if (!plugin.enabled || !plugin.module?.onMessage) continue
       try {

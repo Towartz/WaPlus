@@ -17,6 +17,12 @@
 //   quoted-extractor.js   — extractQuoted
 //   misc-extractors.js    — mentions, poll, location, contact, reaction, forward
 //   proto-extractors.js   — event, callLog, groupInvite, pin, keep, schedCall, album
+//   proto-utils.js        — toNumber, generateMessageIDV2, getStatusFromType,
+//                           getCallStatusFromNode, getUrlFromDirectPath, extractURL
+//   msg-helpers.js        — normalizeMessageContent, extractMessageContent,
+//                           generateForwardMessageContent, updateMessageWithReceipt,
+//                           updateMessageWithReaction, updateMessageWithPollUpdate,
+//                           extractDeviceJids, getSenderInfo
 //   renderer.js           — buildRendererPayload, dbRowToRendererMsg, enrichMessage
 // ════════════════════════════════════════════════════════════
 
@@ -49,6 +55,24 @@ const {
   extractPinInChat, extractKeepInChat, extractScheduledCall, extractAlbum,
 } = require("./parser/proto-extractors")
 const { buildRendererPayload, dbRowToRendererMsg, enrichMessage } = require("./parser/renderer")
+const {
+  toNumber,
+  generateMessageIDV2,
+  getStatusFromType,
+  getCallStatusFromNode,
+  getUrlFromDirectPath,
+  extractURL,
+} = require("./parser/proto-utils")
+const {
+  normalizeMessageContent,
+  extractMessageContent,
+  generateForwardMessageContent,
+  updateMessageWithReceipt,
+  updateMessageWithReaction,
+  updateMessageWithPollUpdate,
+  extractDeviceJids,
+  getSenderInfo,
+} = require("./parser/msg-helpers")
 
 // ════════════════════════════════════════════════════════════
 // MAIN PARSER
@@ -224,28 +248,27 @@ function parseMessage(msg, opts = {}) {
   //   • NaN  (missing field)          → fall back to now
   //   • 0    (unset proto default)    → fall back to now
   //   • far-future clock skew > 1 day → clamp to now to avoid corrupt sort order
+  // [FIX-TIMESTAMP] Use toNumber() for correct proto Long handling.
+  // Number() on a Long works but loses precision for large values; toNumber() uses
+  // the Long's own conversion which correctly handles the high/low word split.
   const _nowSecs  = Math.floor(Date.now() / 1000)
-  const _rawTs    = Number(msg.messageTimestamp)
+  const _rawTs    = toNumber(msg.messageTimestamp)
   const timestamp = (_rawTs > 0 && _rawTs <= _nowSecs + 86400) ? _rawTs : _nowSecs
 
   const status = msg.status ?? (isMe ? 1 : 0)
 
-  // [FIX] Guard raw_json serialization — an exotic proto field with a circular
-  // ref, Symbol, or BigInt must not crash the parser and silently drop the entire
-  // message from the DB. Fast path: plain JSON.stringify. Fallback: replacer that
-  // handles BigInt and Buffer. Last resort: store null so the row still saves.
+  // [FIX] Guard raw_json serialization — always use Buffer-safe replacer so that
+  // binary fields like pollCreationMessage.encKey (Uint8Array) are preserved as
+  // base64 strings instead of being silently lost as {} by plain JSON.stringify.
+  // This is critical for poll vote decryption via getAggregateVotesInPollMessage.
   let raw_json = null
   try {
-    raw_json = JSON.stringify(rawMessage)
-  } catch (_) {
-    try {
-      raw_json = JSON.stringify(rawMessage, (_, v) => {
-        if (typeof v === "bigint")                          return Number(v)
-        if (v instanceof Uint8Array || Buffer.isBuffer(v)) return v.toString("base64")
-        return v
-      })
-    } catch (_2) { /* genuinely unserializable — null is safer than a crash */ }
-  }
+    raw_json = JSON.stringify(rawMessage, (_, v) => {
+      if (typeof v === "bigint")                          return Number(v)
+      if (v instanceof Uint8Array || Buffer.isBuffer(v)) return v.toString("base64")
+      return v
+    })
+  } catch (_) { /* genuinely unserializable — null is safer than a crash */ }
 
   return {
     // Identity
@@ -457,6 +480,24 @@ module.exports = {
   extractKeepInChat,
   extractScheduledCall,
   extractAlbum,
+
+  // ── Proto utils (./parser/proto-utils) ───────────────────
+  toNumber,
+  generateMessageIDV2,
+  getStatusFromType,
+  getCallStatusFromNode,
+  getUrlFromDirectPath,
+  extractURL,
+
+  // ── Msg helpers (./parser/msg-helpers) ───────────────────
+  normalizeMessageContent,
+  extractMessageContent,
+  generateForwardMessageContent,
+  updateMessageWithReceipt,
+  updateMessageWithReaction,
+  updateMessageWithPollUpdate,
+  extractDeviceJids,
+  getSenderInfo,
 
   // ── Renderer (./parser/renderer) ──────────────────────────
   buildRendererPayload,

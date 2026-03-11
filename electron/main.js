@@ -136,16 +136,21 @@ const _hotReloadDebounce = new Map()
 const HOT_DEBOUNCE_MS    = 700
 
 /**
- * _clearModuleCache — recursively purge a module + all local (non-node_modules) deps.
+ * _clearModuleCache — recursively purge a module + ALL local (non-node_modules) deps.
+ * [FIX-HOTRELOAD-CIRC] Must be truly recursive: client.js → messageParser.js → parser/*.js
+ * Shallow clear left messageParser sub-modules (jid-utils etc.) in cache mid-load,
+ * causing "Accessing non-existent property" circular dep warnings and initSock=undefined.
  */
-function _clearModuleCache(modulePath) {
+function _clearModuleCache(modulePath, _visited = new Set()) {
   let resolved
   try { resolved = require.resolve(modulePath) } catch (_) { return }
+  if (_visited.has(resolved)) return
+  _visited.add(resolved)
   const mod = require.cache[resolved]
   if (!mod) return
   for (const child of (mod.children || [])) {
     if (child.id.includes('node_modules')) continue
-    if (child.id.startsWith(__dirname)) delete require.cache[child.id]
+    if (child.id.startsWith(__dirname)) _clearModuleCache(child.id, _visited)
   }
   delete require.cache[resolved]
 }

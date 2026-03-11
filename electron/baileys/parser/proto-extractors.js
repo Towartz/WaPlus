@@ -6,6 +6,8 @@
 // PinInChat, KeepInChat, ScheduledCall, Album
 // ════════════════════════════════════════════════════════════
 
+const { toNumber } = require("./proto-utils")
+
 // ── Event (WAProto: EventMessage) ─────────────────────────────
 
 /**
@@ -20,8 +22,8 @@ function extractEvent(message, msgType) {
   return {
     name:             ev.name        || null,
     description:      ev.description || null,
-    start_time:       ev.startTime   ? Number(ev.startTime)  : null,
-    end_time:         ev.endTime     ? Number(ev.endTime)    : null,
+    start_time:       ev.startTime   ? toNumber(ev.startTime)  : null,
+    end_time:         ev.endTime     ? toNumber(ev.endTime)    : null,
     location_name:    ev.location?.name              || null,
     location_address: ev.location?.address           || null,
     location_lat:     ev.location?.degreesLatitude   || null,
@@ -67,7 +69,7 @@ function extractGroupInvite(message, msgType) {
     group_jid:     gi.groupJid         || null,
     group_name:    gi.groupName        || null,
     invite_code:   gi.inviteCode       || null,
-    invite_expiry: gi.inviteExpiration ? Number(gi.inviteExpiration) : null,
+    invite_expiry: gi.inviteExpiration ? toNumber(gi.inviteExpiration) : null,
     caption:       gi.caption          || null,
     group_type:    gi.groupType        ?? 0,
   }
@@ -122,7 +124,7 @@ function extractScheduledCall(message, msgType) {
 
   return {
     title:         sc.title               || null,
-    scheduled_at:  sc.scheduledTimestamp  ? Number(sc.scheduledTimestamp) : null,
+    scheduled_at:  sc.scheduledTimestamp  ? toNumber(sc.scheduledTimestamp) : null,
     is_video:      sc.callType === 2      ? 1 : 0,
     duration_secs: sc.duration            || null,
     participants:  (sc.callParticipants || []).map(p => p.jid || p).filter(Boolean),

@@ -1017,7 +1017,8 @@ const statements = {
         UPDATE messages SET media_saved_path = ?, media_is_downloaded = 1 WHERE id = ?
     `),
 
-    updatePollVotes: db.prepare('UPDATE messages SET poll_votes = ? WHERE id = ?'),
+    updatePollVotes:   db.prepare('UPDATE messages SET poll_votes = ? WHERE id = ?'),
+    updatePollOptions: db.prepare('UPDATE messages SET poll_options = ? WHERE id = ?'),
 
     // [FIX-PREVIEW] @msg_type was never passed from client.js handleMessage() → silent UPDATE fail
     // Fix: remove @msg_type from the statement used by handleMessage; keep full version for saveMessage
@@ -1916,6 +1917,12 @@ const database = {
         if (!id) return;
         const val = typeof pollResultsJson === 'string' ? pollResultsJson : JSON.stringify(pollResultsJson);
         statements.updatePollVotes.run(val, id);
+    },
+
+    updatePollOptions(id, pollOptionsJson) {
+        if (!id) return;
+        const val = typeof pollOptionsJson === 'string' ? pollOptionsJson : JSON.stringify(pollOptionsJson);
+        statements.updatePollOptions.run(val, id);
     },
 
     // [FIX-9] Kolom yang benar: poll_message_id / voter_jid / selected_options

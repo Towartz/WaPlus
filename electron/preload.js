@@ -135,6 +135,7 @@ contextBridge.exposeInMainWorld("api", {
   onMessagesReaction:  createListener("messages:reaction"),
   onMessagesDelete:    createListener("messages:delete"),
   onMessagesReceipt:   createListener("messages:receipt"),
+  onPollUpdate:        createListener("messages:poll_update"),
 
   // ═══════════════════════════════════════════════════════════
   // MEDIA
