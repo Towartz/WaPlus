@@ -2751,7 +2751,9 @@ const database = {
                 SELECT id, remote_jid AS chat_jid, from_me
                 FROM messages
                 WHERE (body IS NULL OR body = '')
-                  AND (message_type IS NULL OR message_type = 'conversation')
+                  AND message_type = 'conversation'
+                  AND media_url IS NULL
+                  AND media_direct_path IS NULL
                   AND is_deleted = 0
                   AND message_timestamp > (strftime('%s', 'now') - 86400)
                 ORDER BY message_timestamp DESC

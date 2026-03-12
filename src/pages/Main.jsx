@@ -184,6 +184,14 @@ export default function Main() {
       if (d?.isComplete || d?.status === "done") loadChats()
     }))
 
+    // [FIX-RESUME-SYNC] Gap-fill progress after reconnect (offline catch-up).
+    // These events come from _activeGapFill() in client.js.
+    unsubs.push(window.api.onResumeSyncComplete?.(() => {
+      // Refresh chat list once gap-fill is done so unread counts & previews are current
+      loadChats()
+      loadContacts()
+    }))
+
     // Live chat updates — reload from SQLite
     unsubs.push(window.api.onChatsSet?.((chats) => { if (chats?.length) loadChats() }))
     unsubs.push(window.api.onChatsUpsert?.(() => loadChats()))

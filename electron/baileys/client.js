@@ -1787,14 +1787,12 @@ async function handleMessage(msg, type, isHistorySync = false) {
     if (pollId) {
       try {
         const pollMsg = db.getMessageById(pollId)
-        logW(`[POLL-DBG] pollId=${pollId} found=${!!pollMsg} has_opts=${!!pollMsg?.poll_options} json_len=${pollMsg?.message_json?.length ?? 0}`)
         if (pollMsg?.poll_options) {
           let pollCreation = {}
           try {
             // [FIX-POLL-ENCKEY] message_json stores Buffers as base64 strings (via replacer).
             // Restore encKey back to Buffer so getAggregateVotesInPollMessage can decrypt.
             const raw = JSON.parse(pollMsg.message_json || '{}')
-            logW(`[POLL-DBG] raw_keys=${JSON.stringify(Object.keys(raw))} mci=${JSON.stringify(raw.messageContextInfo)} pm_keys=${JSON.stringify(Object.keys(raw.pollCreationMessageV3||raw.pollCreationMessageV2||raw.pollCreationMessage||{}))}`)
             // Restore Buffer fields serialized as base64 strings
             const pm = raw.pollCreationMessageV3 || raw.pollCreationMessageV2 || raw.pollCreationMessage
             // [FIX] Buffers can be serialized as base64 string OR as {type:'Buffer',data:[...]}
@@ -1812,7 +1810,6 @@ async function handleMessage(msg, type, isHistorySync = false) {
             }
             pollCreation = raw
           } catch (_) {}
-          logW(`[POLL-DBG] pollCreation keys=${JSON.stringify(Object.keys(pollCreation))} encKey=${!!(pollCreation.pollCreationMessageV3?.encKey || pollCreation.pollCreationMessage?.encKey)}`)
 
           // [FIX-POLL-DECRYPT] Decrypt encPayload using pollEncKey from messageContextInfo.messageSecret
           // pollEncKey is NOT in pollCreationMessage.encKey — it lives in messageContextInfo.messageSecret
@@ -1831,24 +1828,19 @@ async function handleMessage(msg, type, isHistorySync = false) {
             return null
           }
           const encKeyBuf = _toKeyBuf(pollEncKey)
-          logW(`[POLL-DBG] pollEncKey=${!!pollEncKey} type=${pollEncKey ? typeof pollEncKey : 'none'} encKeyBuf_len=${encKeyBuf?.length ?? 'null'} pollCreatorJid=${pollCreatorJid} voterJid=${voterJid}`)
-          logW(`[POLL-DBG] vote_encPayload_len=${pum.vote?.encPayload?.length ?? JSON.stringify(pum.vote?.encPayload)?.length} vote_encIv_len=${pum.vote?.encIv?.length ?? JSON.stringify(pum.vote?.encIv)?.length}`)
 
           let decryptedVote = null
           try {
             if (encKeyBuf) {
               const encPayloadBuf = _toKeyBuf(pum.vote?.encPayload) ?? Buffer.from(pum.vote?.encPayload ?? '', 'base64')
               const encIvBuf      = _toKeyBuf(pum.vote?.encIv)      ?? Buffer.from(pum.vote?.encIv      ?? '', 'base64')
-              logW(`[POLL-DBG] encKeyBuf=${encKeyBuf.toString('hex')} encIvBuf=${encIvBuf.toString('hex')} encPayload=${encPayloadBuf.toString('hex')}`)
               decryptedVote = _decryptPollVote(
                 { encPayload: encPayloadBuf, encIv: encIvBuf },
                 { pollEncKey: encKeyBuf, pollCreatorJid, pollMsgId: pollId, voterJid }
               )
             }
           } catch (decErr) {
-            logW(`[POLL-DBG] decryptPollVote error: ${decErr.message}`)
           }
-          logW(`[POLL-DBG] decryptedVote=${JSON.stringify(decryptedVote)}`)
 
           const pollUpdateEntry = {
             pollUpdateMessageKey: msg.key,
@@ -1861,19 +1853,16 @@ async function handleMessage(msg, type, isHistorySync = false) {
             message: pollCreation,
             pollUpdates: [pollUpdateEntry],
           })
-          logW(`[POLL-DBG] pollResults=${JSON.stringify(pollResults)}`)
 
           try { updateMessageWithPollUpdate(pollCreation, pollUpdateEntry) } catch (_) {}
 
           let originalOpts = []
           try { originalOpts = JSON.parse(pollMsg.poll_options || '[]') } catch (_) {}
-          logW(`[POLL-DBG] originalOpts=${JSON.stringify(originalOpts)}`)
 
           const mergedOptions = originalOpts.map(opt => {
             const match = pollResults.find(r => r.name === opt.name)
             return { ...opt, votes: match ? (match.voters?.length ?? 0) : 0 }
           })
-          logW(`[POLL-DBG] mergedOptions=${JSON.stringify(mergedOptions)}`)
 
           db.updatePollVotes?.(pollId, JSON.stringify(pollResults))
           db.updatePollOptions?.(pollId, JSON.stringify(mergedOptions))
@@ -1891,11 +1880,6 @@ async function handleMessage(msg, type, isHistorySync = false) {
       }
     }
     return  // Never save pollUpdateMessage as a chat bubble
-  }
-  // [POLL-DEBUG] dump raw poll creation message
-  if (msg.message?.pollCreationMessageV3 || msg.message?.pollCreationMessage || msg.message?.pollCreationMessageV2) {
-    logW(`[POLL-RAW] incoming poll creation: ${JSON.stringify(msg.message)}`)
-    logW(`[POLL-RAW] msg.messageContextInfo: ${JSON.stringify(msg.messageContextInfo)}`)
   }
   const parsed = parseMessage(msg, {
     jid: msg.key.remoteJid,
@@ -2307,6 +2291,8 @@ async function connectToWhatsApp(phoneForPairing = null) {
         if (hasDataNow) {
           logOk('[FIX-ENDLESS-SYNC] Reconnect: DB has data, completing sync immediately')
           isSyncing = false
+          // [FIX-TIMER] Cancel the 3s timer — we already completed sync here.
+          if (_syncAutoCompleteTimer) { clearTimeout(_syncAutoCompleteTimer); _syncAutoCompleteTimer = null }
           db.endSync(0, 0)
           setImmediate(() => {
             try { db.backfillChatLastMessages?.() } catch (_) {}
@@ -2806,8 +2792,11 @@ async function connectToWhatsApp(phoneForPairing = null) {
         } catch (_) {}
       })
       send('sync:resume:complete', stats)
-      // Clear disconnect stamp — next pause will write a fresh one
-      _saveLastDisconnectTs(0)
+      // [FIX-GAP-TS] Update disconnect stamp to NOW (not 0).
+      // Clearing to 0 was a bug: _activeGapFill() checks "_lastDisconnectTs > 0",
+      // so storing 0 would permanently disable gap-fill on all future restarts.
+      // Storing "now" means the NEXT reconnect correctly calculates the new offline gap.
+      _saveLastDisconnectTs(Date.now())
       _resumeSyncStats = { messages: 0, chats: new Set() }
     }, 4000)
   }
@@ -2897,7 +2886,9 @@ async function connectToWhatsApp(phoneForPairing = null) {
 
             // [FIX-FROMME-MEDIA] If this update carries media content for a fromMe message,
             // trigger download now so it renders without requiring Ctrl+R.
-            if (key.fromMe && existing.has_media && !existing.media_is_downloaded) {
+            // [FIX-HAS-MEDIA] DB rows have no "has_media" column — derive from media_mimetype OR media_url.
+            const rowHasMedia = !!(existing.media_mimetype || existing.media_url || existing.media_direct_path)
+            if (key.fromMe && rowHasMedia && !existing.media_is_downloaded) {
               const msgType = existing.message_type
               const mediaTypeKey = resolveMediaTypeKey(msgType, update.message)
               if (mediaTypeKey) {

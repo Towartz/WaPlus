@@ -89,6 +89,10 @@ contextBridge.exposeInMainWorld("api", {
   // ═══════════════════════════════════════════════════════════
   onSyncStatus:    createListener("sync:status"),
   onSyncProgress:  createListener("sync:progress"),
+  // [FIX-RESUME-SYNC] Gap-fill progress events (offline catch-up after reconnect)
+  onResumeSyncStart:    createListener("sync:resume:start"),
+  onResumeSyncProgress: createListener("sync:resume:progress"),
+  onResumeSyncComplete: createListener("sync:resume:complete"),
   dbSyncStatus:    ()      => safeInvoke("db:sync:status"),
 
   // ═══════════════════════════════════════════════════════════
