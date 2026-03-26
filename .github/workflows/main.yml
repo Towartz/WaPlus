@@ -1,20 +1,14 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# AuroraChat — GitHub Actions Build Pipeline
-# ──────────────────────────────────────────────────────────────────────────────
-
 name: Build AuroraChat
 
 on:
   push:
     tags:
       - "v*.*.*"
-
     branches:
       - "dev-*"
 
   workflow_dispatch:
     inputs:
-
       platforms:
         description: "Platform(s) to build"
         required: true
@@ -66,23 +60,21 @@ env:
   ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
-# ──────────────────────────────────────────────────────────────────────────────
 jobs:
-
   decide:
     name: Resolve build matrix
     runs-on: ubuntu-latest
     outputs:
-      run_windows  : ${{ steps.resolve.outputs.run_windows }}
-      run_linux    : ${{ steps.resolve.outputs.run_linux }}
-      run_macos    : ${{ steps.resolve.outputs.run_macos }}
-      secure       : ${{ steps.resolve.outputs.secure }}
-      publish      : ${{ steps.resolve.outputs.publish }}
+      run_windows: ${{ steps.resolve.outputs.run_windows }}
+      run_linux: ${{ steps.resolve.outputs.run_linux }}
+      run_macos: ${{ steps.resolve.outputs.run_macos }}
+      secure: ${{ steps.resolve.outputs.secure }}
+      publish: ${{ steps.resolve.outputs.publish }}
       is_prerelease: ${{ steps.resolve.outputs.is_prerelease }}
-      version      : ${{ steps.resolve.outputs.version }}
-      app_version  : ${{ steps.resolve.outputs.app_version }}
-      build_ref    : ${{ steps.resolve.outputs.build_ref }}
-      tag_name     : ${{ steps.resolve.outputs.tag_name }}
+      version: ${{ steps.resolve.outputs.version }}
+      app_version: ${{ steps.resolve.outputs.app_version }}
+      build_ref: ${{ steps.resolve.outputs.build_ref }}
+      tag_name: ${{ steps.resolve.outputs.tag_name }}
 
     steps:
       - name: Checkout
@@ -92,6 +84,7 @@ jobs:
 
       - name: Resolve matrix
         id: resolve
+        shell: bash
         run: |
           RUN_WIN=false
           RUN_LINUX=false
@@ -101,7 +94,9 @@ jobs:
           IS_PRERELEASE=false
 
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            RUN_WIN=true; RUN_LINUX=true; RUN_MAC=true
+            RUN_WIN=true
+            RUN_LINUX=true
+            RUN_MAC=true
             PUBLISH=true
             TAG="${{ github.ref_name }}"
             if [[ "$TAG" =~ -(beta|alpha|rc|pre) ]]; then
@@ -114,11 +109,11 @@ jobs:
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             PLAT="${{ github.event.inputs.platforms }}"
             [[ "$PLAT" == *"Windows"* ]] && RUN_WIN=true
-            [[ "$PLAT" == *"Linux"*   ]] && RUN_LINUX=true
-            [[ "$PLAT" == *"macOS"*   ]] && RUN_MAC=true
+            [[ "$PLAT" == *"Linux"* ]] && RUN_LINUX=true
+            [[ "$PLAT" == *"macOS"* ]] && RUN_MAC=true
             SECURE="${{ github.event.inputs.secure }}"
             REL_TYPE="${{ github.event.inputs.release_type }}"
-            [[ "$REL_TYPE" == *"release"*     ]] && PUBLISH=true
+            [[ "$REL_TYPE" == *"release"* ]] && PUBLISH=true
             [[ "$REL_TYPE" == *"pre-release"* ]] && IS_PRERELEASE=true
           fi
 
@@ -149,16 +144,16 @@ jobs:
             TAG_NAME="v${APP_VERSION}"
           fi
 
-          echo "run_windows=$RUN_WIN"         >> $GITHUB_OUTPUT
-          echo "run_linux=$RUN_LINUX"         >> $GITHUB_OUTPUT
-          echo "run_macos=$RUN_MAC"           >> $GITHUB_OUTPUT
-          echo "secure=$SECURE"               >> $GITHUB_OUTPUT
-          echo "publish=$PUBLISH"             >> $GITHUB_OUTPUT
-          echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
-          echo "version=$CI_VERSION"          >> $GITHUB_OUTPUT
-          echo "app_version=$APP_VERSION"     >> $GITHUB_OUTPUT
-          echo "build_ref=$BUILD_REF"         >> $GITHUB_OUTPUT
-          echo "tag_name=$TAG_NAME"           >> $GITHUB_OUTPUT
+          echo "run_windows=$RUN_WIN" >> "$GITHUB_OUTPUT"
+          echo "run_linux=$RUN_LINUX" >> "$GITHUB_OUTPUT"
+          echo "run_macos=$RUN_MAC" >> "$GITHUB_OUTPUT"
+          echo "secure=$SECURE" >> "$GITHUB_OUTPUT"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "version=$CI_VERSION" >> "$GITHUB_OUTPUT"
+          echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_ref=$BUILD_REF" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
 
   build-windows:
     name: "🪟 Windows"
@@ -176,9 +171,10 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
       - name: Install dependencies
-        run: npm install --ignore-scripts
+        run: npm ci
         shell: bash
 
       - name: Bump version in package.json
@@ -193,62 +189,25 @@ jobs:
               p.version = '$APP_VER';
               fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
             "
-            echo "Version bumped: $CURRENT → $APP_VER"
+            echo "Version bumped: $CURRENT -> $APP_VER"
           else
             echo "Version unchanged: $CURRENT"
           fi
 
-      - name: Inject better-sqlite3 — Windows x64
-        run: node scripts/inject-win-sqlite.js --platform win32 --arch x64
-        shell: bash
-
-      - name: Vite build
-        run: npm run build
-        shell: bash
-
-      - name: Obfuscate
-        if: needs.decide.outputs.secure == 'true'
-        run: node scripts/obfuscate.js
-        shell: bash
-
-      - name: Package — electron-builder
-        run: npx --no -- electron-builder --win --config.npmRebuild=false
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Verify better_sqlite3.node
-        shell: pwsh
-        run: |
-          $bin = Get-ChildItem -Recurse -Path "release" -Filter "better_sqlite3.node" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $bin) { Write-Error "better_sqlite3.node not found in release/"; exit 1 }
-          $bytes = [System.IO.File]::ReadAllBytes($bin.FullName)
-          $magic = "{0:X2}{1:X2}" -f $bytes[0], $bytes[1]
-          if ($magic -ne "4D5A") {
-            Write-Error "Wrong binary type! Expected PE32 (4D5A), got $magic"; exit 1
-          }
-          Write-Host "✅ PE32+ confirmed — $($bin.FullName)"
-
-      - name: Rename artifacts
+      - name: Build Windows package
         shell: bash
         run: |
-          VER="${{ needs.decide.outputs.app_version }}"
-          cd release
-          for f in *.exe *.msi; do
-            [ -f "$f" ] || continue
-            NEW=$(echo "$f" | sed -E "s/ [0-9]+\.[0-9]+\.[0-9]+//g")
-            EXT="${NEW##*.}"
-            BASE="${NEW%.*}"
-            FINAL="${BASE}-v${VER}.${EXT}"
-            mv "$f" "$FINAL" 2>/dev/null || true
-            echo "  $f → $FINAL"
-          done
+          if [ "${{ needs.decide.outputs.secure }}" = "true" ]; then
+            npm run dist:secure:win
+          else
+            npm run dist:win
+          fi
 
       - name: List artifacts
         shell: bash
         run: |
           echo "Windows artifacts:"
-          find release -maxdepth 1 \( -name "*.exe" -o -name "*.msi" \) | sort
+          find release -maxdepth 2 \( -name "*.exe" -o -name "*.msi" \) | sort || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -276,6 +235,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
       - name: Install system dependencies
         run: |
@@ -284,7 +244,7 @@ jobs:
             libarchive-tools rpm fakeroot dpkg libfuse2
 
       - name: Install dependencies
-        run: npm install --ignore-scripts
+        run: npm ci
 
       - name: Bump version in package.json
         run: |
@@ -297,55 +257,24 @@ jobs:
               p.version = '$APP_VER';
               fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
             "
-            echo "Version bumped: $CURRENT → $APP_VER"
+            echo "Version bumped: $CURRENT -> $APP_VER"
           else
             echo "Version unchanged: $CURRENT"
           fi
 
-      - name: Inject better-sqlite3 — Linux x64
-        run: node scripts/inject-win-sqlite.js --platform linux --arch x64
-
-      - name: Vite build
-        run: npm run build
-
-      - name: Obfuscate
-        if: needs.decide.outputs.secure == 'true'
-        run: node scripts/obfuscate.js
-
-      - name: Package — electron-builder
-        run: npx --no -- electron-builder --linux --config.npmRebuild=false
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Verify better_sqlite3.node
+      - name: Build Linux package
+        shell: bash
         run: |
-          BIN=$(find release -name "better_sqlite3.node" 2>/dev/null | head -1)
-          if [ -z "$BIN" ]; then echo "❌ better_sqlite3.node not found"; exit 1; fi
-          MAGIC=$(xxd -p -l 4 "$BIN")
-          if [[ "$MAGIC" != "7f454c46" ]]; then
-            echo "❌ Wrong binary type! Expected ELF (7f454c46), got $MAGIC"; exit 1
+          if [ "${{ needs.decide.outputs.secure }}" = "true" ]; then
+            npm run dist:secure:linux
+          else
+            npm run dist:linux
           fi
-          echo "✅ ELF confirmed — $BIN"
-          file "$BIN" 2>/dev/null || true
-
-      - name: Rename artifacts
-        run: |
-          VER="${{ needs.decide.outputs.app_version }}"
-          cd release
-          for f in *.AppImage *.deb *.rpm *.pacman; do
-            [ -f "$f" ] || continue
-            NEW=$(echo "$f" | sed -E "s/[_-][0-9]+\.[0-9]+\.[0-9]+//g")
-            EXT="${NEW##*.}"
-            BASE="${NEW%.*}"
-            FINAL="${BASE}-v${VER}.${EXT}"
-            mv "$f" "$FINAL" 2>/dev/null || true
-            echo "  $f → $FINAL"
-          done
 
       - name: List artifacts
         run: |
           echo "Linux artifacts:"
-          find release -maxdepth 1 \( -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.pacman" \) | sort
+          find release -maxdepth 2 \( -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.pacman" \) | sort || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -375,9 +304,10 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
       - name: Install dependencies
-        run: npm install --ignore-scripts
+        run: npm ci
 
       - name: Bump version in package.json
         run: |
@@ -390,56 +320,27 @@ jobs:
               p.version = '$APP_VER';
               fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
             "
-            echo "Version bumped: $CURRENT → $APP_VER"
+            echo "Version bumped: $CURRENT -> $APP_VER"
           else
             echo "Version unchanged: $CURRENT"
           fi
 
-      - name: Inject better-sqlite3 — macOS x64
-        run: node scripts/inject-win-sqlite.js --platform darwin --arch x64
-
-      - name: Vite build
-        run: npm run build
-
-      - name: Obfuscate
-        if: needs.decide.outputs.secure == 'true'
-        run: node scripts/obfuscate.js
-
-      - name: Package — electron-builder
-        run: npx --no -- electron-builder --mac --config.npmRebuild=false
+      - name: Build macOS package
+        shell: bash
+        run: |
+          if [ "${{ needs.decide.outputs.secure }}" = "true" ]; then
+            npm run dist:secure:mac
+          else
+            npm run dist:mac
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
-      - name: Verify better_sqlite3.node
-        run: |
-          BIN=$(find release -name "better_sqlite3.node" 2>/dev/null | head -1)
-          if [ -z "$BIN" ]; then echo "❌ better_sqlite3.node not found"; exit 1; fi
-          MAGIC=$(xxd -p -l 4 "$BIN")
-          if [[ "$MAGIC" != "cffaedfe" && "$MAGIC" != "cafebabe" ]]; then
-            echo "❌ Wrong binary type! Expected Mach-O, got $MAGIC"; exit 1
-          fi
-          echo "✅ Mach-O confirmed — $BIN"
-          file "$BIN" 2>/dev/null || true
-
-      - name: Rename artifacts
-        run: |
-          VER="${{ needs.decide.outputs.app_version }}"
-          cd release
-          for f in *.dmg *.zip; do
-            [ -f "$f" ] || continue
-            NEW=$(echo "$f" | sed -E "s/[_-][0-9]+\.[0-9]+\.[0-9]+//g")
-            EXT="${NEW##*.}"
-            BASE="${NEW%.*}"
-            FINAL="${BASE}-v${VER}.${EXT}"
-            mv "$f" "$FINAL" 2>/dev/null || true
-            echo "  $f → $FINAL"
-          done
-
       - name: List artifacts
         run: |
           echo "macOS artifacts:"
-          find release -maxdepth 3 \( -name "*.dmg" -o -name "*.zip" \) | sort
+          find release -maxdepth 3 \( -name "*.dmg" -o -name "*.zip" \) | sort || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -479,10 +380,8 @@ jobs:
         run: find dist-artifacts/ -type f | sort
 
       - name: Generate release notes
-        id: notes
         run: |
           APP_VER="${{ needs.decide.outputs.app_version }}"
-          TAG="${{ needs.decide.outputs.tag_name }}"
           IS_PRE="${{ needs.decide.outputs.is_prerelease }}"
 
           PREV_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]' | sed -n '2p' || echo "")
@@ -496,10 +395,10 @@ jobs:
 
           if [[ "$IS_PRE" == "true" ]]; then
             RELEASE_LABEL="Pre-release"
-            RELEASE_NOTE="> ⚠️ This is a **pre-release** build. It may contain bugs or unfinished features."
+            RELEASE_NOTE="> ⚠️ This is a pre-release build. It may contain bugs or unfinished features."
           else
             RELEASE_LABEL="Release"
-            RELEASE_NOTE="> ✅ This is a **stable release**."
+            RELEASE_NOTE="> ✅ This is a stable release."
           fi
 
           {
@@ -518,16 +417,17 @@ jobs:
             echo ""
             echo "| Platform | File | Notes |"
             echo "|----------|------|-------|"
-            echo "| 🪟 Windows | \`AuroraChat-Setup-v${APP_VER}.exe\` | NSIS installer — recommended |"
-            echo "| 🪟 Windows | \`AuroraChat-Portable-v${APP_VER}.exe\` | No installation required |"
-            echo "| 🐧 Linux | \`AuroraChat-v${APP_VER}.AppImage\` | Universal, no install needed |"
-            echo "| 🐧 Linux | \`AuroraChat-v${APP_VER}.deb\` | Debian / Ubuntu |"
-            echo "| 🐧 Linux | \`AuroraChat-v${APP_VER}.pacman\` | Arch / CachyOS / Manjaro |"
-            echo "| 🍎 macOS | \`AuroraChat-v${APP_VER}.dmg\` | Intel + Apple Silicon |"
+            echo "| 🪟 Windows | \`AuroraChat Setup *.exe\` | NSIS installer |"
+            echo "| 🪟 Windows | \`AuroraChat Portable *.exe\` | Portable build |"
+            echo "| 🐧 Linux | \`AuroraChat *.AppImage\` | Universal Linux package |"
+            echo "| 🐧 Linux | \`AuroraChat *.deb\` | Debian / Ubuntu |"
+            echo "| 🐧 Linux | \`AuroraChat *.pacman\` | Arch / Manjaro |"
+            echo "| 🍎 macOS | \`AuroraChat *.dmg\` | Installer image |"
+            echo "| 🍎 macOS | \`AuroraChat *.zip\` | Zipped app bundle |"
             echo ""
             echo "---"
             echo ""
-            echo "<sub>Built with Electron \`${ELECTRON_VER}\` · Node.js \`${{ env.NODE_VERSION }}\` · better-sqlite3 prebuilt binary injected per platform</sub>"
+            echo "<sub>Built with Electron \`${ELECTRON_VER}\` · Node.js \`${{ env.NODE_VERSION }}\`</sub>"
           } > RELEASE_NOTES.md
 
           cat RELEASE_NOTES.md
@@ -535,13 +435,13 @@ jobs:
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name      : ${{ needs.decide.outputs.tag_name }}
-          name          : "AuroraChat v${{ needs.decide.outputs.app_version }}"
-          body_path     : RELEASE_NOTES.md
-          draft         : false
-          prerelease    : ${{ needs.decide.outputs.is_prerelease == 'true' }}
-          make_latest   : ${{ needs.decide.outputs.is_prerelease != 'true' }}
-          files         : dist-artifacts/**/*
+          tag_name: ${{ needs.decide.outputs.tag_name }}
+          name: AuroraChat v${{ needs.decide.outputs.app_version }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: ${{ needs.decide.outputs.is_prerelease == 'true' }}
+          make_latest: ${{ needs.decide.outputs.is_prerelease != 'true' }}
+          files: dist-artifacts/**/*
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -554,6 +454,7 @@ jobs:
 
     steps:
       - name: Write summary
+        shell: bash
         run: |
           APP_VER="${{ needs.decide.outputs.app_version }}"
           CI_VER="${{ needs.decide.outputs.version }}"
@@ -564,11 +465,11 @@ jobs:
 
           icon() {
             case "$1" in
-              success)   echo "✅" ;;
-              failure)   echo "❌" ;;
-              skipped)   echo "⏭️" ;;
+              success) echo "✅" ;;
+              failure) echo "❌" ;;
+              skipped) echo "⏭️" ;;
               cancelled) echo "🚫" ;;
-              *)         echo "❓" ;;
+              *) echo "❓" ;;
             esac
           }
 
@@ -579,19 +480,19 @@ jobs:
             echo ""
             echo "| Platform | Result |"
             echo "|----------|--------|"
-            echo "| 🪟 Windows | $(icon $WIN) \`$WIN\` |"
-            echo "| 🐧 Linux   | $(icon $LIN) \`$LIN\` |"
-            echo "| 🍎 macOS   | $(icon $MAC) \`$MAC\` |"
-            echo "| 🚀 Publish | $(icon $PUB) \`$PUB\` |"
+            echo "| 🪟 Windows | $(icon "$WIN") \`$WIN\` |"
+            echo "| 🐧 Linux | $(icon "$LIN") \`$LIN\` |"
+            echo "| 🍎 macOS | $(icon "$MAC") \`$MAC\` |"
+            echo "| 🚀 Publish | $(icon "$PUB") \`$PUB\` |"
             echo ""
             echo "### Build info"
             echo ""
             echo "| Key | Value |"
             echo "|-----|-------|"
             echo "| App version | \`v${APP_VER}\` |"
-            echo "| Trigger     | \`${{ github.event_name }}\` |"
-            echo "| Build ref   | \`${{ needs.decide.outputs.build_ref }}\` |"
-            echo "| Tag         | \`${{ needs.decide.outputs.tag_name }}\` |"
+            echo "| Trigger | \`${{ github.event_name }}\` |"
+            echo "| Build ref | \`${{ needs.decide.outputs.build_ref }}\` |"
+            echo "| Tag | \`${{ needs.decide.outputs.tag_name }}\` |"
             echo "| Pre-release | \`${{ needs.decide.outputs.is_prerelease }}\` |"
-            echo "| Obfuscate   | \`${{ needs.decide.outputs.secure }}\` |"
-          } >> $GITHUB_STEP_SUMMARY
+            echo "| Obfuscate | \`${{ needs.decide.outputs.secure }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
