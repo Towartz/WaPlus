@@ -1,16 +1,15 @@
 "use strict"
 
-const { getContentType } = require("baileys")
+import { getContentType } from "baileys"
 
 // Pull Baileys thumbnail generators — used as fallback when jpegThumbnail is absent.
 let _extractImageThumb, _extractVideoThumb, _generateThumbnail
 try {
-  const baileys      = require("baileys")
+  const baileys = await import("baileys")
   _extractImageThumb = baileys.extractImageThumb
   _extractVideoThumb = baileys.extractVideoThumb
   _generateThumbnail = baileys.generateThumbnail
 } catch (_) {}
-
 // Jimp for thumbnail resizing — already a project dependency.
 // Loaded lazily so parse errors don't crash the whole module.
 let Jimp = null

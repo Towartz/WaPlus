@@ -25,7 +25,7 @@ function toNumber(t) {
 // ── generateMessageIDV2 ───────────────────────────────────────────────────────
 const { randomBytes, createHash } = require("crypto")
 let _jidDecode
-try { _jidDecode = require("baileys").jidDecode } catch (_) {}
+try { _jidDecode = (await import("baileys")).jidDecode } catch (_) {}
 
 /**
  * generateMessageIDV2 — generate a Baileys-compatible message ID.
@@ -67,7 +67,7 @@ const STATUS_MAP = {
 }
 
 let _proto
-try { _proto = require("baileys").proto } catch (_) {}
+try { _proto = (await import("baileys")).proto } catch (_) {}
 
 const WA_STATUS = _proto?.WebMessageInfo?.Status || {
   ERROR:        0,
@@ -133,11 +133,12 @@ function getUrlFromDirectPath(directPath) {
 
 // ── extractURL ────────────────────────────────────────────────────────────────
 let _URL_REGEX
-try { _URL_REGEX = require("baileys").URL_REGEX } catch (_) {
+try {
+  _URL_REGEX = (await import("baileys")).URL_REGEX
+} catch (_) {
   // Fallback regex if Baileys doesn't export it
   _URL_REGEX = /https?:\/\/[^\s/$.?#].[^\s]*/i
 }
-
 /**
  * extractURL — extract the first URL from a text string.
  *

@@ -65,7 +65,7 @@ process.on('uncaughtException', (err) => {
   // Do NOT call process.exit() — Electron handles its own lifecycle
 })
 
-const {
+import {
   makeWASocket,
   Browsers,
   useMultiFileAuthState,
@@ -79,7 +79,7 @@ const {
   downloadMediaMessage,
   proto,
   getAggregateVotesInPollMessage,
-} = require("baileys")
+} from "baileys"
 
 // ADD MessageParser by Towartz
 const {

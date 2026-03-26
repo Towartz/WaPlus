@@ -1,6 +1,6 @@
 "use strict"
 
-const { getContentType } = require("baileys")
+import { getContentType } from "baileys";
 
 // ════════════════════════════════════════════════════════════
 // TYPE DETECTION

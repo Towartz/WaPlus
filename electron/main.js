@@ -1746,7 +1746,10 @@ ipcMain.handle("dev:eval", async (_e, { code, mode, msgId, chatJid, fullOutput }
   const { dialog } = require("electron")
 
   let baileys = {}
-  try { baileys = require("baileys") } catch {}
+    try {
+      const mod = await import("baileys")
+      baileys = mod.default ?? mod
+    } catch {}
 
   const client = baileysClient || {}
 

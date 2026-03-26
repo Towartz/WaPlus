@@ -153,14 +153,13 @@ function parseMessage(msg, opts = {}) {
     // Check 4: getBotJid — if sock has a bot JID, check against that too
     if (!isMe && opts.sock) {
       try {
-        const { getBotJid } = require("baileys")
+        const { getBotJid } = await import("baileys")
         const botJid = typeof getBotJid === "function" ? getBotJid(opts.sock) : null
         if (botJid && key.participant) {
           isMe = sameUser(botJid, key.participant)
         }
       } catch (_) {}
     }
-  }
 
   // ── Sender JID — normalized + lid resolved ───────────────
   const rawSender = isMe

@@ -31,7 +31,7 @@
 //   lidToJid            — convert lid → jid (Baileys live lookup, most accurate)
 // ════════════════════════════════════════════════════════════
 
-const {
+import {
   jidNormalizedUser,
   jidDecode,
   jidEncode,
@@ -46,7 +46,7 @@ const {
   isJidBot,
   getSenderLid,
   lidToJid,
-} = require("baileys")
+} from "baileys"
 
 // ── Module-level LID map ─────────────────────────────────────
 // Set once via initLidMap(), auto-used by normalizeJid() and resolveLid().

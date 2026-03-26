@@ -18,7 +18,7 @@ const { getRealContentType, normalizeMsgType } = require("./type-detection")
 const { toNumber } = require("./proto-utils")
 
 let _proto, _Boom
-try { _proto = require("baileys").proto }  catch (_) {}
+try { _proto = (await import("baileys")).proto } catch (_) {}
 try { _Boom  = require("@hapi/boom").Boom } catch (_) {}
 
 function _boom(msg, statusCode = 400) {
@@ -244,7 +244,7 @@ function _getKeyAuthor(key) {
  */
 function extractDeviceJids(result, myJid, excludeZeroDevices) {
   let _jidDecodeLocal
-  try { _jidDecodeLocal = require("baileys").jidDecode } catch (_) { _jidDecodeLocal = jidDecode }
+  try { _jidDecodeLocal = (await import("baileys")).jidDecode } catch (_) { _jidDecodeLocal = jidDecode }
 
   const { user: myUser, device: myDevice } = (_jidDecodeLocal(myJid) || {})
   const extracted = []

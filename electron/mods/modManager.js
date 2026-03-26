@@ -248,7 +248,7 @@ class ModManager extends EventEmitter {
       // ── Baileys helpers ───────────────────────────────────────
       // Expose beberapa fungsi Baileys yang umum dipakai plugin
       get baileys() {
-        try { return require("baileys") } catch { return {} }
+        return import("baileys").catch(() => ({}));
       },
 
       // ── Message helpers ───────────────────────────────────────
@@ -268,8 +268,12 @@ class ModManager extends EventEmitter {
       },
 
       // parseJid — decode a JID into { user, server, device }
-      parseJid: (jid) => {
-        try { return require("baileys").jidDecode(jid) } catch { return null }
+      parseJid: async (jid) => {
+        try {
+          return (await import("baileys")).jidDecode(jid);
+        } catch {
+          return null;
+        }
       },
     }
   }
