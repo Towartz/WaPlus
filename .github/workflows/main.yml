@@ -1,19 +1,5 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # AuroraChat — GitHub Actions Build Pipeline
-#
-# Triggers:
-#   push tag  v*.*.*        → full release, all platforms
-#   push tag  v*.*.*-beta.* → pre-release, all platforms
-#   push dev-* branch       → Linux only, quick compile check
-#   workflow_dispatch       → manual, full control
-#
-# Runners per platform (parallel):
-#   🪟 Windows → windows-latest
-#   🐧 Linux   → ubuntu-22.04
-#   🍎 macOS   → macos-latest  (macOS 14 Sonoma, Apple Silicon)
-#
-# better-sqlite3 prebuilt binary is injected per platform before packaging.
-# npmRebuild is disabled to prevent overwriting the injected binary.
 # ──────────────────────────────────────────────────────────────────────────────
 
 name: Build AuroraChat
@@ -78,11 +64,11 @@ concurrency:
 env:
   NODE_VERSION: "22"
   ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 # ──────────────────────────────────────────────────────────────────────────────
 jobs:
 
-  # ── Resolve build matrix, version, and release config ────────────────────────
   decide:
     name: Resolve build matrix
     runs-on: ubuntu-latest
@@ -100,7 +86,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
 
@@ -114,21 +100,17 @@ jobs:
           PUBLISH=false
           IS_PRERELEASE=false
 
-          # ── Tag push ─────────────────────────────────────────────────────────
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             RUN_WIN=true; RUN_LINUX=true; RUN_MAC=true
             PUBLISH=true
             TAG="${{ github.ref_name }}"
-            # beta/alpha/rc tags → pre-release
             if [[ "$TAG" =~ -(beta|alpha|rc|pre) ]]; then
               IS_PRERELEASE=true
             fi
 
-          # ── dev-* branch push → Linux only (quick compile check) ─────────────
           elif [[ "${{ github.ref }}" == refs/heads/dev-* ]]; then
             RUN_LINUX=true
 
-          # ── Manual dispatch ───────────────────────────────────────────────────
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             PLAT="${{ github.event.inputs.platforms }}"
             [[ "$PLAT" == *"Windows"* ]] && RUN_WIN=true
@@ -140,24 +122,19 @@ jobs:
             [[ "$REL_TYPE" == *"pre-release"* ]] && IS_PRERELEASE=true
           fi
 
-          # ── Build ref ─────────────────────────────────────────────────────────
           BRANCH_INPUT="${{ github.event.inputs.branch }}"
           BUILD_REF="${BRANCH_INPUT:-${{ github.ref }}}"
 
-          # ── App version (what goes into package.json) ─────────────────────────
           VERSION_INPUT="${{ github.event.inputs.version }}"
           if [[ -n "$VERSION_INPUT" ]]; then
-            # Strip leading 'v' if user typed it
             APP_VERSION="${VERSION_INPUT#v}"
           elif [[ "${{ github.ref_type }}" == "tag" ]]; then
             APP_VERSION="${{ github.ref_name }}"
             APP_VERSION="${APP_VERSION#v}"
           else
-            # Read current version from package.json
             APP_VERSION=$(node -p "require('./package.json').version")
           fi
 
-          # ── CI version string (used in artifact names) ────────────────────────
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             CI_VERSION="${{ github.ref_name }}"
           else
@@ -166,38 +143,23 @@ jobs:
             CI_VERSION="${BRANCH_NAME}-${SHORT_SHA}"
           fi
 
-          # ── Tag name for release ──────────────────────────────────────────────
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             TAG_NAME="${{ github.ref_name }}"
           else
             TAG_NAME="v${APP_VERSION}"
           fi
 
-          echo "run_windows=$RUN_WIN"       >> $GITHUB_OUTPUT
-          echo "run_linux=$RUN_LINUX"       >> $GITHUB_OUTPUT
-          echo "run_macos=$RUN_MAC"         >> $GITHUB_OUTPUT
-          echo "secure=$SECURE"             >> $GITHUB_OUTPUT
-          echo "publish=$PUBLISH"           >> $GITHUB_OUTPUT
+          echo "run_windows=$RUN_WIN"         >> $GITHUB_OUTPUT
+          echo "run_linux=$RUN_LINUX"         >> $GITHUB_OUTPUT
+          echo "run_macos=$RUN_MAC"           >> $GITHUB_OUTPUT
+          echo "secure=$SECURE"               >> $GITHUB_OUTPUT
+          echo "publish=$PUBLISH"             >> $GITHUB_OUTPUT
           echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
-          echo "version=$CI_VERSION"        >> $GITHUB_OUTPUT
-          echo "app_version=$APP_VERSION"   >> $GITHUB_OUTPUT
-          echo "build_ref=$BUILD_REF"       >> $GITHUB_OUTPUT
-          echo "tag_name=$TAG_NAME"         >> $GITHUB_OUTPUT
+          echo "version=$CI_VERSION"          >> $GITHUB_OUTPUT
+          echo "app_version=$APP_VERSION"     >> $GITHUB_OUTPUT
+          echo "build_ref=$BUILD_REF"         >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME"           >> $GITHUB_OUTPUT
 
-          echo ""
-          echo "Build matrix resolved:"
-          echo "  🪟 Windows   : $RUN_WIN"
-          echo "  🐧 Linux     : $RUN_LINUX"
-          echo "  🍎 macOS     : $RUN_MAC"
-          echo "  App version  : $APP_VERSION"
-          echo "  CI version   : $CI_VERSION"
-          echo "  Secure       : $SECURE"
-          echo "  Publish      : $PUBLISH"
-          echo "  Pre-release  : $IS_PRERELEASE"
-          echo "  Build ref    : $BUILD_REF"
-          echo "  Tag name     : $TAG_NAME"
-
-  # ── 🪟 Windows ────────────────────────────────────────────────────────────────
   build-windows:
     name: "🪟 Windows"
     needs: decide
@@ -206,12 +168,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v5
         with:
           ref: ${{ needs.decide.outputs.build_ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4.4.0
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -274,9 +236,7 @@ jobs:
           cd release
           for f in *.exe *.msi; do
             [ -f "$f" ] || continue
-            # strip old version pattern vX.X.X from filename if present
             NEW=$(echo "$f" | sed -E "s/ [0-9]+\.[0-9]+\.[0-9]+//g")
-            # inject clean version before extension
             EXT="${NEW##*.}"
             BASE="${NEW%.*}"
             FINAL="${BASE}-v${VER}.${EXT}"
@@ -291,7 +251,7 @@ jobs:
           find release -maxdepth 1 \( -name "*.exe" -o -name "*.msi" \) | sort
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v4
         with:
           name: AuroraChat-Windows-${{ needs.decide.outputs.app_version }}
           path: |
@@ -300,7 +260,6 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-  # ── 🐧 Linux ──────────────────────────────────────────────────────────────────
   build-linux:
     name: "🐧 Linux"
     needs: decide
@@ -309,12 +268,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v5
         with:
           ref: ${{ needs.decide.outputs.build_ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4.4.0
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -389,7 +348,7 @@ jobs:
           find release -maxdepth 1 \( -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.pacman" \) | sort
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v4
         with:
           name: AuroraChat-Linux-${{ needs.decide.outputs.app_version }}
           path: |
@@ -400,7 +359,6 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-  # ── 🍎 macOS ──────────────────────────────────────────────────────────────────
   build-macos:
     name: "🍎 macOS"
     needs: decide
@@ -409,12 +367,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v5
         with:
           ref: ${{ needs.decide.outputs.build_ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4.4.0
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -484,7 +442,7 @@ jobs:
           find release -maxdepth 3 \( -name "*.dmg" -o -name "*.zip" \) | sort
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v4
         with:
           name: AuroraChat-macOS-${{ needs.decide.outputs.app_version }}
           path: |
@@ -493,7 +451,6 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-  # ── Publish GitHub Release ────────────────────────────────────────────────────
   publish:
     name: Publish GitHub Release
     needs: [decide, build-windows, build-linux, build-macos]
@@ -508,13 +465,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: ${{ needs.decide.outputs.build_ref }}
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4.3.0
+        uses: actions/download-artifact@v5
         with:
           path: dist-artifacts/
 
@@ -576,7 +533,7 @@ jobs:
           cat RELEASE_NOTES.md
 
       - name: Create or update GitHub Release
-        uses: softprops/action-gh-release@v2.2.1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name      : ${{ needs.decide.outputs.tag_name }}
           name          : "AuroraChat v${{ needs.decide.outputs.app_version }}"
@@ -589,7 +546,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── Build Summary (always runs) ───────────────────────────────────────────────
   summary:
     name: Build Summary
     needs: [decide, build-windows, build-linux, build-macos, publish]
