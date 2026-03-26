@@ -153,7 +153,7 @@
   "dependencies": {
     "@hapi/boom": "^10.0.1",
     "@tanstack/react-virtual": "^3.13.19",
-    "baileys": "npm:wileys@latest",
+    "baileys": "github:Towartz/Estella-Baileys",
     "better-sqlite3": "^12.6.2",
     "chalk": "^4.1.2",
     "date-fns": "^4.1.0",
