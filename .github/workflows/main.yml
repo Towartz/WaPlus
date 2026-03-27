@@ -76,8 +76,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "25"                                    # upgraded: 22 → 24
+  NODE_VERSION: "24"                                    # upgraded: 22 → 24
   ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 # ──────────────────────────────────────────────────────────────────────────────
 jobs:
@@ -100,7 +101,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v4.3.1
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
 
@@ -206,7 +207,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v4.3.1
         with:
           ref: ${{ needs.decide.outputs.build_ref }}
 
@@ -291,7 +292,7 @@ jobs:
           find release -maxdepth 1 \( -name "*.exe" -o -name "*.msi" \) | sort
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: AuroraChat-Windows-${{ needs.decide.outputs.app_version }}
           path: |
@@ -309,7 +310,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v4.3.1
         with:
           ref: ${{ needs.decide.outputs.build_ref }}
 
@@ -389,7 +390,7 @@ jobs:
           find release -maxdepth 1 \( -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.pacman" \) | sort
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: AuroraChat-Linux-${{ needs.decide.outputs.app_version }}
           path: |
@@ -409,7 +410,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v4.3.1
         with:
           ref: ${{ needs.decide.outputs.build_ref }}
 
@@ -484,7 +485,7 @@ jobs:
           find release -maxdepth 3 \( -name "*.dmg" -o -name "*.zip" \) | sort
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: AuroraChat-macOS-${{ needs.decide.outputs.app_version }}
           path: |
@@ -508,13 +509,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v4.3.1
         with:
           fetch-depth: 0
           ref: ${{ needs.decide.outputs.build_ref }}
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4.3.0
+        uses: actions/download-artifact@v7.0.0
         with:
           path: dist-artifacts/
 
@@ -576,7 +577,7 @@ jobs:
           cat RELEASE_NOTES.md
 
       - name: Create or update GitHub Release
-        uses: softprops/action-gh-release@v2.2.1
+        uses: softprops/action-gh-release@v2.5.0
         with:
           tag_name      : ${{ needs.decide.outputs.tag_name }}
           name          : "AuroraChat v${{ needs.decide.outputs.app_version }}"
